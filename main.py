@@ -9,13 +9,13 @@ from urllib.parse import urlparse
 # ✅ 환경 변수 로딩
 load_dotenv()
 
-# ✅ FastAPI 앱 설정 + 서버 정보 (OpenAPI 연동용)
+# ✅ FastAPI 앱 초기화 + OpenAPI 설정
 app = FastAPI(
     title="NaverSearch API",
-    description="주식 정보, 금 시세, 블로그 생성, GPT 분석, 네이버 SEO 분석 기능 제공 API",
+    description="주식 정보, 금 시세, GPT 분석, 블로그 생성, SEO 점검을 제공하는 통합 API",
     version="1.0.0",
     servers=[
-        {"url": "https://naversearch.onrender.com"}  # 👉 Render 배포 URL로 수정
+        {"url": "https://naversearch.onrender.com"}  # 🚀 Render 배포 시 반드시 지정
     ]
 )
 
@@ -38,7 +38,7 @@ class BlogRequest(BaseModel):
 class SEORequest(BaseModel):
     url: str
 
-# ✅ 주식 정보 조회 (유가/코스닥 자동 감지)
+# ✅ 시장 구분 (KOSPI / KOSDAQ)
 def get_market_type(isuCd: str) -> str:
     url = "http://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info"
     headers = {"Content-Type": "application/json"}
@@ -53,6 +53,7 @@ def get_market_type(isuCd: str) -> str:
         pass
     return "kospi"
 
+# ✅ 주식 정보 조회 (KRX API)
 @app.post("/stock_info")
 async def get_stock_info(query: StockQuery):
     market = get_market_type(query.symbol)
@@ -61,15 +62,19 @@ async def get_stock_info(query: StockQuery):
         if market == "kosdaq"
         else "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd"
     )
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "authorization": f"Bearer {KRX_API_KEY}"  # ✅ 인증 키 포함
+    }
     body = {"basDd": query.date, "isuCd": query.symbol}
     try:
         response = requests.post(url, headers=headers, json=body)
+        response.raise_for_status()
         return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"KRX API 오류: {e}")
 
-# ✅ 금 시세 조회 (샘플 값 사용)
+# ✅ 금 시세 조회 (샘플)
 @app.get("/gold_price")
 async def get_gold_price():
     gold_price_1g = 87500
@@ -79,7 +84,7 @@ async def get_gold_price():
         "gold_1don": f"{gold_price_1don}원"
     }
 
-# ✅ GPT-4 주식 분석
+# ✅ GPT 주식 분석
 @app.post("/stock_analysis")
 async def analyze_stock(query: StockQuery):
     try:
@@ -116,7 +121,7 @@ async def generate_post(data: BlogRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {e}")
 
-# ✅ 네이버 SEO 기준 점검 기능
+# ✅ 네이버 SEO 기준 점검
 @app.post("/seo_score")
 async def seo_score(data: SEORequest):
     def is_valid_url(url):
@@ -124,7 +129,7 @@ async def seo_score(data: SEORequest):
         return parsed.scheme in ("http", "https") and parsed.netloc
 
     if not is_valid_url(data.url):
-        raise HTTPException(status_code=400, detail="유효하지 않은 URL입니다. http 또는 https로 시작해야 합니다.")
+        raise HTTPException(status_code=400, detail="유효하지 않은 URL입니다.")
 
     try:
         html = requests.get(data.url, timeout=5).text
