@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -6,28 +7,24 @@ import requests
 import openai
 from urllib.parse import urlparse
 
-# ✅ 환경 변수 로딩
 load_dotenv()
 
-# ✅ FastAPI 앱 초기화 + OpenAPI 설정
 app = FastAPI(
-    title="NaverSearch API",
-    description="주식 정보, 금 시세, GPT 분석, 블로그 생성, SEO 점검을 제공하는 통합 API",
+    title="NaverSearch Hybrid API",
+    description="KRX + 키움증권 API 하이브리드 기반의 종합 주식 분석 서비스",
     version="1.0.0",
-    servers=[
-        {"url": "https://naversearch.onrender.com"}  # 🚀 Render 배포 시 반드시 지정
-    ]
+    servers=[{"url": "https://naversearch.onrender.com"}]
 )
 
-# ✅ 환경 변수 설정
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 KRX_API_KEY = os.getenv("KRX_API_KEY")
+KIWOOM_APPKEY = os.getenv("KIWOOM_APPKEY")
+KIWOOM_SECRETKEY = os.getenv("KIWOOM_SECRETKEY")
 
 openai.api_key = OPENAI_API_KEY
 
-# ✅ 데이터 모델 정의
 class StockQuery(BaseModel):
     symbol: str
     date: str
@@ -38,7 +35,6 @@ class BlogRequest(BaseModel):
 class SEORequest(BaseModel):
     url: str
 
-# ✅ 시장 구분 (KOSPI / KOSDAQ)
 def get_market_type(isuCd: str) -> str:
     url = "http://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info"
     headers = {"Content-Type": "application/json"}
@@ -53,7 +49,6 @@ def get_market_type(isuCd: str) -> str:
         pass
     return "kospi"
 
-# ✅ 주식 정보 조회 (KRX API)
 @app.post("/stock_info")
 async def get_stock_info(query: StockQuery):
     market = get_market_type(query.symbol)
@@ -64,7 +59,7 @@ async def get_stock_info(query: StockQuery):
     )
     headers = {
         "Content-Type": "application/json",
-        "authorization": f"Bearer {KRX_API_KEY}"  # ✅ 인증 키 포함
+        "authorization": f"Bearer {KRX_API_KEY}"
     }
     body = {"basDd": query.date, "isuCd": query.symbol}
     try:
@@ -74,7 +69,6 @@ async def get_stock_info(query: StockQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"KRX API 오류: {e}")
 
-# ✅ 금 시세 조회 (샘플)
 @app.get("/gold_price")
 async def get_gold_price():
     gold_price_1g = 87500
@@ -84,7 +78,6 @@ async def get_gold_price():
         "gold_1don": f"{gold_price_1don}원"
     }
 
-# ✅ GPT 주식 분석
 @app.post("/stock_analysis")
 async def analyze_stock(query: StockQuery):
     try:
@@ -102,14 +95,13 @@ async def analyze_stock(query: StockQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {e}")
 
-# ✅ GPT 블로그 글 생성
 @app.post("/generate_post")
 async def generate_post(data: BlogRequest):
     try:
         prompt = (
             f"'{data.topic}'이라는 주제로 블로그 글을 작성해줘. "
             "서론, 본론, 결론 구조로 나누고, 친근하면서도 정보성 있게 써줘. "
-            "소제목도 적절히 넣고, 문단은 자연스럽게 나눠줘. 마치 블로거가 쓴 글처럼."
+            "소제목도 적절히 넣고, 문단은 자연스럽게 나눠줘."
         )
         response = openai.chat.completions.create(
             model="gpt-4",
@@ -121,7 +113,6 @@ async def generate_post(data: BlogRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {e}")
 
-# ✅ 네이버 SEO 기준 점검
 @app.post("/seo_score")
 async def seo_score(data: SEORequest):
     def is_valid_url(url):
@@ -136,27 +127,37 @@ async def seo_score(data: SEORequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"URL 요청 실패: {str(e)}")
 
-    prompt = (
-        f"""아래 HTML은 사용자가 입력한 웹페이지입니다. 
-네이버 웹마스터 가이드에 따라 SEO 요소들을 점검하고, 다음 항목들을 포함해 평가해줘:
-
-1. 전체 SEO 점수 (100점 만점 기준)
-2. 개선이 필요한 요소 리스트 (meta 태그, 제목, OpenGraph, robots.txt 등)
-3. 전반적인 요약
-
-아래는 HTML입니다:
-```html
-{html[:3000]}
-```"""
+    seo_prompt = (
+        "아래 HTML은 사용자가 입력한 웹페이지입니다.\n"
+        "네이버 웹마스터 가이드에 따라 SEO 요소들을 점검하고, 다음 항목들을 포함해 평가해줘:\n"
+        "1. 전체 SEO 점수 (100점 만점 기준)\n"
+        "2. 개선이 필요한 요소 리스트 (meta 태그, 제목, OpenGraph, robots.txt 등)\n"
+        "3. 전반적인 요약\n"
+        f"아래는 HTML입니다:\n```html\n{html[:3000]}\n```"
     )
 
     try:
         response = openai.chat.completions.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": seo_prompt}],
             max_tokens=800
         )
         result = response.choices[0].message.content.strip()
         return {"seo_analysis": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 분석 실패: {e}")
+
+@app.get("/kiwoom_token")
+def get_kiwoom_token():
+    url = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "grant_type": "client_credentials",
+        "appkey": KIWOOM_APPKEY,
+        "appsecret": KIWOOM_SECRETKEY
+    }
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"키움 토큰 발급 실패: {e}")
